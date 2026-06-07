@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>注册 — 单细胞 ANN 检索系统</title>
+<style>
+  :root {
+    --bg: #f8fafc; --card: #fff; --text: #1e293b; --text2: #64748b;
+    --accent: #2563eb; --border: #e2e8f0; --red: #ef4444; --green: #10b981;
+    --radius: 12px; --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .auth-card {
+    background: var(--card); border-radius: var(--radius); box-shadow: 0 8px 32px rgba(0,0,0,.15);
+    padding: 40px; width: 100%; max-width: 400px;
+  }
+  .auth-card h1 { font-size: 1.4rem; margin-bottom: 8px; color: var(--text); }
+  .auth-card p.sub { color: var(--text2); font-size: .875rem; margin-bottom: 28px; }
+  .form-group { margin-bottom: 18px; }
+  .form-group label { display: block; font-size: .85rem; font-weight: 500; margin-bottom: 6px; color: var(--text); }
+  .form-group input {
+    width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: .9rem; transition: border-color .15s;
+  }
+  .form-group input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+  .hint { font-size: .75rem; color: var(--text2); margin-top: 4px; }
+  .btn-primary {
+    width: 100%; padding: 11px; background: var(--accent); color: #fff; border: none;
+    border-radius: 8px; font-size: .9rem; font-weight: 600; cursor: pointer; transition: background .15s;
+  }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+  .error { color: var(--red); font-size: .85rem; margin-bottom: 14px; padding: 8px 12px; background: #fef2f2; border-radius: 8px; display: none; }
+  .footer { text-align: center; margin-top: 20px; font-size: .85rem; color: var(--text2); }
+  .footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="auth-card">
+  <h1>注册</h1>
+  <p class="sub">创建账号以使用 ANN 检索系统</p>
+  <div id="error-msg" class="error"></div>
+  <form id="register-form" onsubmit="doRegister(event)">
+    <div class="form-group">
+      <label for="username">用户名</label>
+      <input type="text" id="username" name="username" required autocomplete="username" placeholder="3-32 位字母、数字或下划线">
+      <div class="hint">第一个注册的用户将自动成为管理员，其余为普通用户</div>
+    </div>
+    <div class="form-group">
+      <label for="password">密码</label>
+      <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="至少 6 位">
+    </div>
+    <div class="form-group">
+      <label for="confirm">确认密码</label>
+      <input type="password" id="confirm" name="confirm" required autocomplete="new-password" placeholder="再次输入密码">
+    </div>
+    <button type="submit" class="btn-primary" id="submit-btn">注册</button>
+  </form>
+  <div class="footer">已有账号？<a href="/login">返回登录</a></div>
+</div>
+<script>
+if (localStorage.getItem('token')) {
+  window.location.href = '/';
+}
+
+async function doRegister(e) {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const errDiv = document.getElementById('error-msg');
+  errDiv.style.display = 'none';
+
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const confirm = document.getElementById('confirm').value;
+
+  if (password !== confirm) {
+    errDiv.textContent = '两次输入的密码不一致';
+    errDiv.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '注册中...';
+
+  try {
+    const r = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      errDiv.textContent = data.error || '注册失败';
+      errDiv.style.display = 'block';
+      return;
+    }
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+    window.location.href = '/';
+  } catch (err) {
+    errDiv.textContent = '网络错误，请稍后重试';
+    errDiv.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '注册';
+  }
+}
+</script>
+</body>
+</html>

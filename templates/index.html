@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单细胞 ANN 检索系统</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  :root {
+    --bg: #f8fafc; --card: #fff; --text: #1e293b; --text2: #64748b;
+    --accent: #2563eb; --accent2: #7c3aed; --border: #e2e8f0;
+    --red: #ef4444; --green: #10b981; --orange: #f59e0b;
+    --radius: 12px; --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+  .header { background: linear-gradient(135deg, #1e293b, #334155); color: #fff; padding: 24px 32px; }
+  .header h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .header p { color: #94a3b8; font-size: .875rem; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; gap: 20px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; border: 1px solid var(--border); }
+  .card h2 { font-size: 1.05rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .stat-box { text-align: center; }
+  .stat-box .value { font-size: 1.75rem; font-weight: 700; color: var(--accent); }
+  .stat-box .label { font-size: .8rem; color: var(--text2); margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg); font-weight: 600; color: var(--text2); }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: .75rem; font-weight: 500; }
+  .tag-blue { background: #dbeafe; color: #1e40af; }
+  .tag-green { background: #d1fae5; color: #065f46; }
+  .tag-purple { background: #ede9fe; color: #5b21b6; }
+  button, .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-size: .85rem; font-weight: 500; transition: all .15s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-outline { background: #fff; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { background: var(--bg); }
+  .btn-sm { padding: 4px 10px; font-size: .75rem; }
+  select, input { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: .85rem; }
+  select:focus, input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+  .flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; }
+  .query-cell { background: #f0f9ff; border: 2px solid var(--accent); }
+  .result-cell { background: #fefce8; }
+  .loading { text-align: center; padding: 40px; color: var(--text2); }
+  .error { color: var(--red); padding: 8px; background: #fef2f2; border-radius: 8px; }
+  .bar-container { margin-bottom: 6px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: .8rem; margin-bottom: 2px; }
+  .bar { height: 20px; border-radius: 4px; background: var(--accent); transition: width .3s; }
+  #umap-plot { width: 100%; height: 500px; }
+  .method-badge { padding: 2px 8px; border-radius: 4px; font-size: .7rem; font-weight: 600; }
+  .method-hnsw { background: #dbeafe; color: #1e40af; }
+  .method-faiss { background: #fce7f3; color: #9d174d; }
+  .header-bar { display: flex; justify-content: space-between; align-items: center; }
+  .user-info { display: flex; align-items: center; gap: 12px; font-size: .85rem; }
+  .user-info .role-tag { padding: 2px 8px; border-radius: 20px; background: rgba(255,255,255,.15); font-size: .75rem; }
+  .btn-logout { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.3); background: transparent; color: #fff; cursor: pointer; font-size: .8rem; }
+  .btn-logout:hover { background: rgba(255,255,255,.1); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-bar">
+    <div>
+      <h1>单细胞 ANN 相似检索系统</h1>
+      <p>人类儿童肝脏单细胞图谱 — 基于近似最近邻（ANN）的细胞相似性检索</p>
+    </div>
+    <div class="user-info" id="user-bar">
+      <span id="user-name">--</span>
+      <span class="role-tag" id="user-role">--</span>
+      <button class="btn-logout" onclick="doLogout()">退出登录</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Stats row -->
+  <div id="stats-row" class="grid grid-4" style="margin-bottom:20px">
+    <div class="card stat-box"><div class="value" id="stat-cells">--</div><div class="label">细胞总数</div></div>
+    <div class="card stat-box"><div class="value" id="stat-genes">--</div><div class="label">基因数量</div></div>
+    <div class="card stat-box"><div class="value" id="stat-types">--</div><div class="label">细胞类型数</div></div>
+    <div class="card stat-box"><div class="value" id="stat-dim">--</div><div class="label">PCA 维度</div></div>
+  </div>
+
+  <!-- Dataset Management -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="flex-between" style="margin-bottom:16px">
+      <h2>数据集管理</h2>
+      <div class="flex" id="upload-controls">
+        <input type="file" id="dataset-file-input" accept=".h5ad" style="display:none">
+        <button class="btn-primary" id="dataset-upload-btn" onclick="document.getElementById('dataset-file-input').click()">上传 .h5ad 文件</button>
+      </div>
+    </div>
+    <div id="dataset-list">
+      <p style="color:var(--text2);font-size:.85rem">加载中...</p>
+    </div>
+  </div>
+
+  <!-- UMAP + Cell Type Distribution -->
+  <div class="grid grid-2" style="margin-bottom:20px">
+    <div class="card">
+      <div class="flex-between" style="margin-bottom:12px">
+        <h2>UMAP 可视化</h2>
+        <select id="umap-color" onchange="renderUMAP()">
+          <option value="cell_types">按细胞类型着色</option>
+          <option value="diseases">按疾病着色</option>
+          <option value="age_groups">按年龄组着色</option>
+          <option value="datasets">按数据集着色</option>
+        </select>
+      </div>
+      <div id="umap-plot"></div>
+      <p style="font-size:.75rem;color:var(--text2);margin-top:8px">点击图中任意点即可选中该细胞作为查询目标</p>
+    </div>
+    <div class="card">
+      <h2>细胞类型分布</h2>
+      <div id="celltype-bars"></div>
+    </div>
+  </div>
+
+  <!-- Query section -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="flex-between" style="margin-bottom:16px">
+      <h2>ANN 相似细胞查询</h2>
+      <div class="flex">
+        <select id="query-method">
+          <option value="hnsw">HNSW</option>
+          <option value="faiss_flat">FAISS Flat（精确搜索）</option>
+          <option value="faiss_ivf">FAISS IVF</option>
+        </select>
+        <select id="query-metric">
+          <option value="l2">L2 距离</option>
+          <option value="cosine">Cosine 距离</option>
+          <option value="ip">内积 (IP)</option>
+        </select>
+        <label>K: <input id="query-k" type="number" value="10" min="1" max="100" style="width:70px"></label>
+        <span id="cell-idx-row"><input id="query-cell-idx" type="number" value="0" min="0" placeholder="细胞编号" style="width:120px"></span>
+        <span id="vector-row" style="display:none"><input id="query-vector" placeholder="向量，逗号分隔" style="width:180px;font-size:.8rem"></span>
+        <button class="btn-outline btn-sm" onclick="toggleQueryMode()" id="toggle-mode-btn">切换向量查询</button>
+        <button class="btn-primary" onclick="doQuery()">查询</button>
+        <button class="btn-outline btn-sm" onclick="randomQuery()">随机选细胞</button>
+      </div>
+    </div>
+
+    <!-- Conditional filters -->
+    <div style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-size:.85rem;font-weight:600;margin-bottom:10px;color:var(--text2)">条件检索（可选，留空表示不限）</div>
+      <div class="flex" id="filter-controls">
+        <label style="font-size:.8rem">细胞类型
+          <select id="filter-cell-type" style="margin-left:4px"><option value="">不限</option></select>
+        </label>
+        <label style="font-size:.8rem">疾病
+          <select id="filter-disease" style="margin-left:4px"><option value="">不限</option></select>
+        </label>
+        <label style="font-size:.8rem">组织
+          <select id="filter-tissue" style="margin-left:4px"><option value="">不限</option></select>
+        </label>
+        <label style="font-size:.8rem">性别
+          <select id="filter-sex" style="margin-left:4px"><option value="">不限</option></select>
+        </label>
+        <label style="font-size:.8rem">年龄组
+          <select id="filter-age-group" style="margin-left:4px"><option value="">不限</option></select>
+        </label>
+        <label style="font-size:.8rem">细胞周期
+          <select id="filter-phase" style="margin-left:4px"><option value="">不限</option></select>
+        </label>
+        <label style="font-size:.8rem">数据集
+          <select id="filter-dataset" style="margin-left:4px"><option value="">不限</option></select>
+        </label>
+        <button class="btn-outline btn-sm" onclick="clearFilters()">清除条件</button>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <div>
+        <h3 style="font-size:.9rem;margin-bottom:8px;color:var(--accent)">查询细胞信息</h3>
+        <div id="query-cell-info" style="font-size:.85rem">
+          <p style="color:var(--text2)">请在 UMAP 图上点击细胞，或在上方输入细胞编号后点击"查询"。</p>
+        </div>
+      </div>
+      <div>
+        <h3 style="font-size:.9rem;margin-bottom:8px">索引状态</h3>
+        <div id="index-info" style="font-size:.85rem;color:var(--text2)">
+          <p>就绪，等待查询。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="card" style="margin-bottom:20px">
+    <h2>Top-K 相似细胞结果</h2>
+    <div id="results-info" style="font-size:.8rem;color:var(--text2);margin-bottom:12px">尚未执行查询。</div>
+    <div style="overflow-x:auto">
+      <table id="results-table" style="display:none">
+        <thead>
+          <tr>
+            <th>#</th><th>细胞编号</th><th>数据集</th><th>细胞类型</th><th>疾病</th>
+            <th>供体年龄</th><th>性别</th><th>细胞周期</th>
+            <th>RNA 计数</th><th>距离</th>
+          </tr>
+        </thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Admin: User Management -->
+  <div class="card" id="admin-panel" style="margin-bottom:20px;display:none">
+    <div class="flex-between" style="margin-bottom:16px">
+      <h2>用户管理</h2>
+      <button class="btn-outline btn-sm" onclick="loadUsers()">刷新列表</button>
+    </div>
+    <div id="user-list">
+      <p style="color:var(--text2);font-size:.85rem">加载中...</p>
+    </div>
+  </div>
+
+  <!-- Benchmark section -->
+  <div class="card">
+    <div class="flex-between" style="margin-bottom:12px">
+      <h2>算法性能对比</h2>
+      <button class="btn-outline" onclick="runBenchmark()">运行性能测试</button>
+    </div>
+    <div id="benchmark-results" style="font-size:.85rem;color:var(--text2)">
+      点击"运行性能测试"对比不同 ANN 算法的构建时间和查询速度。
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Auth ──
+const ROLE_LABELS = { admin: '管理员', researcher: '研究员', user: '普通用户' };
+
+function getToken() {
+  return localStorage.getItem('token');
+}
+
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  const token = getToken();
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return headers;
+}
+
+async function authFetch(url, options = {}) {
+  const r = await fetch(url, {
+    ...options,
+    headers: authHeaders(options.headers || {}),
+  });
+  if (r.status === 401) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+    throw new Error('未登录');
+  }
+  return r;
+}
+
+function initUserBar() {
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  if (!user || !getToken()) {
+    window.location.href = '/login';
+    return;
+  }
+  document.getElementById('user-name').textContent = user.username;
+  document.getElementById('user-role').textContent = ROLE_LABELS[user.role] || user.role;
+}
+
+async function doLogout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  window.location.href = '/login';
+}
+
+// ── Global state ──
+let umapData = null;
+let statsData = null;
+let selectedCellIdx = 0;
+let currentUser = null;
+
+// ── Init ──
+async function init() {
+  initUserBar();
+  currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+  updatePermissionUI();
+  await Promise.all([loadStats(), loadUMAP(), loadDatasets()]);
+}
+
+function updatePermissionUI() {
+  if (!currentUser) return;
+  const canUpload = ['admin', 'researcher'].includes(currentUser.role);
+  const uploadControls = document.getElementById('upload-controls');
+  if (uploadControls) uploadControls.style.display = canUpload ? '' : 'none';
+  const adminPanel = document.getElementById('admin-panel');
+  if (adminPanel) {
+    adminPanel.style.display = currentUser.role === 'admin' ? '' : 'none';
+    if (currentUser.role === 'admin') loadUsers();
+  }
+}
+
+init();
+
+async function loadStats() {
+  const r = await authFetch('/api/stats');
+  statsData = await r.json();
+  document.getElementById('stat-cells').textContent = statsData.n_cells.toLocaleString();
+  document.getElementById('stat-genes').textContent = statsData.n_genes.toLocaleString();
+  document.getElementById('stat-types').textContent = statsData.n_cell_types;
+  document.getElementById('stat-dim').textContent = statsData.pca_dim;
+  renderCellTypeBars();
+  populateFilterOptions();
+}
+
+function populateFilterOptions() {
+  if (!statsData) return;
+  const mapping = {
+    'filter-cell-type': statsData.cell_types,
+    'filter-disease': statsData.disease_distribution,
+    'filter-tissue': statsData.tissue_distribution,
+    'filter-sex': statsData.sex_distribution,
+    'filter-age-group': statsData.age_groups,
+    'filter-phase': statsData.phase_distribution,
+  };
+  for (const [id, counts] of Object.entries(mapping)) {
+    const sel = document.getElementById(id);
+    if (!sel || !counts) continue;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">不限</option>' +
+      Object.keys(counts).sort().map(v => `<option value="${v}">${v}</option>`).join('');
+    sel.value = current;
+  }
+  const dsSel = document.getElementById('filter-dataset');
+  if (dsSel && statsData.datasets) {
+    const current = dsSel.value;
+    dsSel.innerHTML = '<option value="">不限</option>' +
+      statsData.datasets.map(d => `<option value="${d.filename}">${d.filename}</option>`).join('');
+    dsSel.value = current;
+  }
+}
+
+function getQueryFilters() {
+  const filters = {};
+  const mapping = {
+    cell_type: 'filter-cell-type',
+    disease: 'filter-disease',
+    tissue: 'filter-tissue',
+    sex: 'filter-sex',
+    AgeGroup: 'filter-age-group',
+    Phase: 'filter-phase',
+    dataset: 'filter-dataset',
+  };
+  for (const [key, id] of Object.entries(mapping)) {
+    const val = document.getElementById(id)?.value;
+    if (val) filters[key] = val;
+  }
+  return filters;
+}
+
+function clearFilters() {
+  ['filter-cell-type','filter-disease','filter-tissue','filter-sex',
+   'filter-age-group','filter-phase','filter-dataset'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+}
+
+async function loadUMAP() {
+  const r = await authFetch('/api/umap_data');
+  umapData = await r.json();
+  renderUMAP();
+}
+
+function renderCellTypeBars() {
+  if (!statsData) return;
+  const types = statsData.cell_types;
+  const maxCount = Math.max(...Object.values(types));
+  let html = '';
+  for (const [name, count] of Object.entries(types).sort((a,b) => b[1]-a[1])) {
+    const pct = (count / maxCount * 100).toFixed(0);
+    html += `<div class="bar-container">
+      <div class="bar-label"><span>${name}</span><span>${count.toLocaleString()}</span></div>
+      <div class="bar" style="width:${pct}%"></div>
+    </div>`;
+  }
+  document.getElementById('celltype-bars').innerHTML = html;
+}
+
+function renderUMAP() {
+  if (!umapData) return;
+  const colorBy = document.getElementById('umap-color').value;
+  const colorData = umapData[colorBy];
+  const unique = [...new Set(colorData)];
+  const colors = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#aec7e8','#ffbb78','#98df8a','#ff9896','#c5b0d5','#c49c94','#f7b6d2','#c7c7c7','#dbdb8d','#9edae5'];
+
+  const traces = unique.map((label, i) => {
+    const idx = colorData.map((v, j) => v === label ? j : -1).filter(j => j >= 0);
+    return {
+      x: idx.map(j => umapData.x[j]),
+      y: idx.map(j => umapData.y[j]),
+      name: label,
+      type: 'scattergl',
+      mode: 'markers',
+      marker: { size: 3, color: colors[i % colors.length], opacity: 0.7 },
+      text: idx.map(j => `细胞 ${j}: ${umapData.cell_types[j]}`),
+      hoverinfo: 'text',
+    };
+  });
+
+  Plotly.newPlot('umap-plot', traces, {
+    margin: { l: 40, r: 10, t: 10, b: 40 },
+    xaxis: { showgrid: false, zeroline: false, title: 'UMAP 1' },
+    yaxis: { showgrid: false, zeroline: false, title: 'UMAP 2' },
+    showlegend: true,
+    legend: { font: { size: 10 } },
+    paper_bgcolor: 'transparent',
+    plot_bgcolor: 'transparent',
+  }, { responsive: true });
+
+  document.getElementById('umap-plot').on('plotly_click', function(data) {
+    if (data.points.length > 0) {
+      const text = data.points[0].text;
+      const match = text.match(/细胞 (\d+)/);
+      if (match) {
+        selectedCellIdx = parseInt(match[1]);
+        document.getElementById('query-cell-idx').value = selectedCellIdx;
+        loadCellInfo(selectedCellIdx, 'query-cell-info');
+      }
+    }
+  });
+}
+
+// ── Cell info ──
+async function loadCellInfo(idx, containerId) {
+  const r = await authFetch(`/api/cell/${idx}`);
+  const info = await r.json();
+  const div = document.getElementById(containerId);
+  div.innerHTML = `<table style="font-size:.82rem">
+    <tr><td>编号</td><td><strong>${info.index}</strong></td></tr>
+    <tr><td>数据集</td><td><span class="tag tag-purple">${info.dataset || 'N/A'}</span></td></tr>
+    <tr><td>细胞类型</td><td><span class="tag tag-blue">${info.cell_type}</span></td></tr>
+    <tr><td>疾病</td><td>${info.disease}</td></tr>
+    <tr><td>组织</td><td>${info.tissue}</td></tr>
+    <tr><td>供体年龄</td><td>${info.donor_age}</td></tr>
+    <tr><td>年龄组</td><td>${info.AgeGroup}</td></tr>
+    <tr><td>性别</td><td>${info.sex}</td></tr>
+    <tr><td>细胞周期</td><td>${info.Phase}</td></tr>
+    <tr><td>RNA 计数</td><td>${info.nCount_RNA.toLocaleString()}</td></tr>
+    <tr><td>基因数</td><td>${info.nFeature_RNA.toLocaleString()}</td></tr>
+  </table>`;
+}
+
+// ── Query mode toggle ──
+let queryByVector = false;
+
+function toggleQueryMode() {
+  queryByVector = !queryByVector;
+  document.getElementById('cell-idx-row').style.display = queryByVector ? 'none' : '';
+  document.getElementById('vector-row').style.display = queryByVector ? '' : 'none';
+  document.getElementById('toggle-mode-btn').textContent = queryByVector ? '切换细胞编号查询' : '切换向量查询';
+}
+
+// ── Query ──
+async function doQuery() {
+  const k = parseInt(document.getElementById('query-k').value);
+  const method = document.getElementById('query-method').value;
+  const metric = document.getElementById('query-metric').value;
+
+  let body = { k, method, metric };
+  const filters = getQueryFilters();
+  if (Object.keys(filters).length > 0) body.filters = filters;
+
+  if (queryByVector) {
+    const raw = document.getElementById('query-vector').value.trim();
+    if (!raw) { alert('请输入查询向量'); return; }
+    const vec = raw.split(',').map(Number);
+    if (vec.some(isNaN)) { alert('向量格式错误：请使用逗号分隔的数字'); return; }
+    body.vector = vec;
+  } else {
+    const idx = parseInt(document.getElementById('query-cell-idx').value);
+    if (isNaN(idx)) { alert('请输入有效的细胞编号'); return; }
+    selectedCellIdx = idx;
+    body.cell_index = idx;
+  }
+
+  document.getElementById('results-info').textContent = '正在查询...';
+
+  const r = await authFetch('/api/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+
+  if (data.error) {
+    document.getElementById('results-info').innerHTML = `<span class="error">${data.error}</span>`;
+    return;
+  }
+
+  if (data.query_cell) {
+    loadCellInfo(selectedCellIdx, 'query-cell-info');
+  } else {
+    document.getElementById('query-cell-info').innerHTML = '<p style="color:var(--text2)">使用自定义向量查询</p>';
+  }
+
+  const methodClass = data.method.startsWith('faiss') ? 'method-faiss' : 'method-hnsw';
+  document.getElementById('index-info').innerHTML = `
+    <p>算法：<span class="method-badge ${methodClass}">${data.method}</span></p>
+    <p>距离度量：<strong>${data.metric || 'l2'}</strong></p>
+    <p>索引构建耗时：<strong>${data.build_time_ms} ms</strong></p>
+    <p>查询耗时：<strong>${data.query_time_ms} ms</strong></p>
+  `;
+
+  const filterDesc = data.filters && Object.keys(data.filters).length
+    ? '，条件：' + Object.entries(data.filters).map(([k,v]) => `${k}=${v}`).join('、')
+    : '';
+  document.getElementById('results-info').textContent =
+    `找到 ${data.results.length} 个相似细胞（扫描 ${data.candidates_scanned || '?'} 个候选，查询耗时 ${data.query_time_ms} ms，算法：${data.method}，度量：${data.metric || 'l2'}${filterDesc}）`;
+
+  const tbody = document.getElementById('results-tbody');
+  tbody.innerHTML = data.results.map((r, i) => `
+    <tr class="result-cell">
+      <td>${i + 1}</td>
+      <td><strong>${r.index}</strong></td>
+      <td><span class="tag tag-purple">${r.dataset || 'N/A'}</span></td>
+      <td><span class="tag tag-blue">${r.cell_type}</span></td>
+      <td>${r.disease}</td>
+      <td>${r.donor_age}</td>
+      <td>${r.sex}</td>
+      <td>${r.Phase}</td>
+      <td>${r.nCount_RNA.toLocaleString()}</td>
+      <td>${r.distance}</td>
+    </tr>
+  `).join('');
+  document.getElementById('results-table').style.display = '';
+}
+
+function randomQuery() {
+  if (!statsData) return;
+  const max = statsData.n_cells;
+  const idx = Math.floor(Math.random() * max);
+  document.getElementById('query-cell-idx').value = idx;
+  selectedCellIdx = idx;
+  loadCellInfo(idx, 'query-cell-info');
+}
+
+// ── Dataset Management ──
+
+async function loadDatasets() {
+  const r = await authFetch('/api/datasets');
+  const datasets = await r.json();
+  const div = document.getElementById('dataset-list');
+  if (datasets.length === 0) {
+    div.innerHTML = '<p style="color:var(--text2);font-size:.85rem">暂无数据集，请上传 .h5ad 文件。</p>';
+  } else {
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    div.innerHTML = `<table>
+      <thead><tr><th>文件名</th><th>细胞数</th><th>PCA 维度</th><th>起始索引</th>${isAdmin ? '<th>操作</th>' : ''}</tr></thead>
+      <tbody>${datasets.map((ds) => `
+        <tr>
+          <td><strong>${ds.filename}</strong></td>
+          <td>${ds.n_cells.toLocaleString()}</td>
+          <td>${ds.pca_dim}</td>
+          <td>${ds.cell_offset}</td>
+          ${isAdmin ? `<td><button class="btn-outline btn-sm" onclick="deleteDataset('${ds.filename}')" style="color:var(--red)">删除</button></td>` : ''}
+        </tr>
+      `).join('')}</tbody></table>`;
+  }
+}
+
+async function deleteDataset(filename) {
+  if (!confirm(`确定要删除数据集 "${filename}" 吗？此操作不可撤销。`)) return;
+  const r = await authFetch(`/api/datasets/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+  const result = await r.json();
+  if (!r.ok) { alert('删除失败: ' + (result.error || 'Unknown error')); return; }
+  await Promise.all([loadDatasets(), loadStats(), loadUMAP()]);
+  populateFilterOptions();
+}
+
+// ── Admin: User Management ──
+
+async function loadUsers() {
+  const div = document.getElementById('user-list');
+  if (!div) return;
+  try {
+    const r = await authFetch('/api/users');
+    const users = await r.json();
+    if (!r.ok) { div.innerHTML = `<span class="error">${users.error || '加载失败'}</span>`; return; }
+    div.innerHTML = `<table>
+      <thead><tr><th>用户名</th><th>角色</th><th>注册时间</th><th>操作</th></tr></thead>
+      <tbody>${users.map(u => {
+        const isSelf = currentUser && u.username === currentUser.username;
+        const roleOpts = ['user','researcher','admin'].map(r =>
+          `<option value="${r}" ${u.role===r?'selected':''}>${ROLE_LABELS[r]||r}</option>`).join('');
+        return `<tr>
+          <td><strong>${u.username}</strong>${isSelf ? ' <span class="tag tag-green">当前</span>' : ''}</td>
+          <td><select id="role-${u.username}" onchange="changeUserRole('${u.username}')" ${isSelf && u.role==='admin' ? '' : ''}>${roleOpts}</select></td>
+          <td style="font-size:.8rem;color:var(--text2)">${(u.created_at||'').slice(0,19).replace('T',' ')}</td>
+          <td>${isSelf ? '<span style="color:var(--text2);font-size:.8rem">—</span>' :
+            `<button class="btn-outline btn-sm" onclick="deleteUser('${u.username}')" style="color:var(--red)">删除</button>`}
+          </td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  } catch (e) {
+    div.innerHTML = '<span class="error">加载用户列表失败</span>';
+  }
+}
+
+async function changeUserRole(username) {
+  const sel = document.getElementById('role-' + username);
+  const role = sel.value;
+  const r = await authFetch(`/api/users/${encodeURIComponent(username)}/role`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+  const data = await r.json();
+  if (!r.ok) { alert('修改失败: ' + (data.error || 'Unknown error')); loadUsers(); return; }
+  if (data.token) {
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+    currentUser = data.user;
+    updatePermissionUI();
+  }
+  loadUsers();
+}
+
+async function deleteUser(username) {
+  if (!confirm(`确定要删除用户 "${username}" 吗？`)) return;
+  const r = await authFetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+  const data = await r.json();
+  if (!r.ok) { alert('删除失败: ' + (data.error || 'Unknown error')); return; }
+  loadUsers();
+}
+
+document.getElementById('dataset-file-input').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  const uploadBtn = document.querySelector('.btn-primary');
+  const origText = uploadBtn.textContent;
+  uploadBtn.textContent = '上传中...';
+  uploadBtn.disabled = true;
+  try {
+    const r = await authFetch('/api/datasets/upload', { method: 'POST', body: formData });
+    const result = await r.json();
+    if (!r.ok) { alert('上传失败: ' + (result.error || 'Unknown error')); }
+    else { await Promise.all([loadDatasets(), loadStats(), loadUMAP()]); }
+  } catch (err) {
+    alert('上传失败: ' + err.message);
+  } finally {
+    uploadBtn.textContent = origText;
+    uploadBtn.disabled = false;
+    this.value = '';
+  }
+});
+
+// ── Benchmark ──
+async function runBenchmark() {
+  document.getElementById('benchmark-results').innerHTML = '<div class="loading">正在运行性能测试，请稍候...</div>';
+  const r = await authFetch('/api/benchmark', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ n_queries: 100, k: 10, methods: ['hnsw', 'faiss_flat', 'faiss_ivf'] }),
+  });
+  const data = await r.json();
+
+  let html = '<table><thead><tr><th>算法</th><th>索引构建时间</th><th>平均查询时间</th><th>每秒查询数 (QPS)</th></tr></thead><tbody>';
+  for (const [method, res] of Object.entries(data)) {
+    const cls = method.startsWith('faiss') ? 'method-faiss' : 'method-hnsw';
+    html += `<tr>
+      <td><span class="method-badge ${cls}">${method}</span></td>
+      <td>${res.build_time_ms.toFixed(2)} ms</td>
+      <td>${res.avg_query_time_ms.toFixed(4)} ms</td>
+      <td>${res.queries_per_second.toFixed(1)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('benchmark-results').innerHTML = html;
+}
+</script>
+</body>
+</html>
