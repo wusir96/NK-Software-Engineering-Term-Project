@@ -1,5 +1,6 @@
 __pycache__/
 *.md
+!README.md
 
 uploads/
 data/
